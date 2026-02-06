@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TeamUp Wro - Znajdź drużynę do gry</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    
+    <style>
+        .tab-active {
+            border-bottom: 3px solid #3b82f6;
+            color: #3b82f6;
+        }
+        .sport-badge {
+            transition: all 0.3s ease;
+        }
+        .sport-badge:hover {
+            transform: scale(1.05);
+        }
+        #map {
+            height: 300px;
+            border-radius: 0.5rem;
+        }
+        .player-slot {
+            transition: all 0.2s ease;
+        }
+        .player-slot:hover {
+            transform: translateY(-2px);
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 1000;
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        .trust-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .trust-verified {
+            background: #dcfce7;
+            color: #166534;
+        }
+        .trust-good {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .trust-low {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Auth Modal -->
+    <div id="authModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4" style="z-index: 9999;">
+        <div class="bg-white rounded-2xl max-w-md w-full p-8">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-blue-600 rounded-full mx-auto mb-4 flex items-center justify-center">
+                    <span class="text-white font-bold text-2xl">⚽</span>
+                </div>
+                <h2 class="text-2xl font-bold text-gray-900 mb-2">Witaj w TeamUp Wro!</h2>
+                <p class="text-gray-600">Zaloguj się, aby znaleźć drużynę</p>
+            </div>
+            
+            <button id="googleSignIn" class="w-full bg-white border-2 border-gray-300 text-gray-700 py-3 px-4 rounded-lg font-semibold hover:bg-gray-50 transition flex items-center justify-center gap-3 mb-4">
+                <svg width="20" height="20" viewBox="0 0 20 20">
+                    <path fill="#4285F4" d="M19.6 10.23c0-.82-.1-1.42-.25-2.05H10v3.72h5.5c-.15.96-.74 2.31-2.04 3.22v2.45h3.16c1.89-1.73 2.98-4.3 2.98-7.34z"/>
+                    <path fill="#34A853" d="M13.46 15.13c-.83.59-1.96 1-3.46 1-2.64 0-4.88-1.74-5.68-4.15H1.07v2.52C2.72 17.75 6.09 20 10 20c2.7 0 4.96-.89 6.62-2.42l-3.16-2.45z"/>
+                    <path fill="#FBBC05" d="M3.99 10c0-.69.12-1.35.32-1.97V5.51H1.07A9.973 9.973 0 000 10c0 1.61.39 3.14 1.07 4.49l3.24-2.52c-.2-.62-.32-1.28-.32-1.97z"/>
+                    <path fill="#EA4335" d="M10 3.88c1.88 0 3.13.81 3.85 1.48l2.84-2.76C14.96.99 12.7 0 10 0 6.09 0 2.72 2.25 1.07 5.51l3.24 2.52C5.12 5.62 7.36 3.88 10 3.88z"/>
+                </svg>
+                Zaloguj przez Google
+            </button>
+            
+            <div class="text-center text-sm text-gray-500">
+                Logując się akceptujesz nasze<br>Warunki korzystania i Politykę prywatności
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-white shadow-sm sticky top-0 z-40">
+        <div class="max-w-4xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                        <span class="text-white font-bold text-xl">⚽</span>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold text-gray-900">TeamUp Wro</h1>
+                        <p class="text-xs text-gray-500">Znajdź drużynę we Wrocławiu</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div id="userInfo" class="hidden flex items-center gap-2">
+                        <img id="userPhoto" class="w-8 h-8 rounded-full" alt="User">
+                        <button id="signOutBtn" class="text-sm text-gray-600 hover:text-gray-900">Wyloguj</button>
+                    </div>
+                    <button id="loginBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                        Zaloguj
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-4xl mx-auto px-4 py-6">
+        <!-- Navigation Tabs -->
+        <div class="bg-white rounded-lg shadow-sm mb-6">
+            <div class="flex border-b border-gray-200">
+                <button class="tab-button flex-1 py-4 text-center font-medium tab-active" data-tab="games">
+                    🏃 Gry
+                </button>
+                <button class="tab-button flex-1 py-4 text-center font-medium text-gray-500" data-tab="create">
+                    ➕ Utwórz
+                </button>
+                <button class="tab-button flex-1 py-4 text-center font-medium text-gray-500" data-tab="profile">
+                    👤 Profil
+                </button>
+            </div>
+        </div>
+
+        <!-- Games Tab -->
+        <div id="gamesTab" class="tab-content">
+            <!-- Filters -->
+            <div class="bg-white rounded-lg shadow-sm p-4 mb-4">
+                <div class="flex gap-2 mb-4">
+                    <button class="sport-filter flex-1 py-2 px-4 rounded-lg bg-blue-600 text-white font-medium" data-sport="all">
+                        Wszystkie
+                    </button>
+                    <button class="sport-filter flex-1 py-2 px-4 rounded-lg bg-gray-100 text-gray-700 font-medium" data-sport="football">
+                        ⚽ Futbol
+                    </button>
+                    <button class="sport-filter flex-1 py-2 px-4 rounded-lg bg-gray-100 text-gray-700 font-medium" data-sport="basketball">
+                        🏀 Koszykówka
+                    </button>
+                </div>
+                <input type="date" id="dateFilter" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+            </div>
+
+            <!-- Map -->
+            <div class="bg-white rounded-lg shadow-sm p-4 mb-4">
+                <h3 class="font-semibold text-gray-900 mb-3">Mapa gier</h3>
+                <div id="map"></div>
+            </div>
+
+            <!-- Games List -->
+            <div id="gamesList" class="space-y-4">
+                <div class="bg-white rounded-lg shadow-sm p-8 text-center">
+                    <div class="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+                    <p class="text-gray-500">Ładowanie gier...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Create Tab -->
+        <div id="createTab" class="tab-content hidden">
+            <div id="createGameContent" class="bg-white rounded-lg shadow-sm p-6">
+                <!-- Content will be shown after login -->
+            </div>
+        </div>
+
+        <!-- Profile Tab -->
+        <div id="profileTab" class="tab-content hidden">
+            <div id="profileContent" class="bg-white rounded-lg shadow-sm p-6">
+                <!-- Content will be shown after login -->
+            </div>
+        </div>
+    </main>
+
+    <!-- Game Detail Modal -->
+    <div id="gameModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center" style="z-index: 9999;">
+        <div class="bg-white w-full sm:max-w-lg sm:rounded-t-2xl rounded-t-2xl max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+                <h3 class="text-lg font-bold">Szczegóły gry</h3>
+                <button id="closeModal" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            <div id="modalContent" class="p-6">
+                <!-- Content populated by JS -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Firebase Configuration
+        // ВАЖНО: Замените на ваши настройки Firebase после создания проекта
+        const firebaseConfig = {
+            apiKey: "DEMO-MODE-LOCAL-ONLY",
+            authDomain: "teamup-wro.firebaseapp.com",
+            projectId: "teamup-wro",
+            storageBucket: "teamup-wro.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abc123"
+        };
+
+        // Initialize Firebase
+        let app, auth, db;
+        let currentUser = null;
+        let userProfile = null;
+        
+        try {
+            app = firebase.initializeApp(firebaseConfig);
+            auth = firebase.auth();
+            db = firebase.firestore();
+        } catch (error) {
+            console.log('Firebase demo mode - using local storage');
+            // Fallback to demo mode
+        }
+
+        // Toast notification
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500'} text-white`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // Auth State Observer
+        if (auth) {
+            auth.onAuthStateChanged(async (user) => {
+                currentUser = user;
+                if (user) {
+                    document.getElementById('authModal').classList.add('hidden');
+                    document.getElementById('loginBtn').classList.add('hidden');
+                    document.getElementById('userInfo').classList.remove('hidden');
+                    document.getElementById('userPhoto').src = user.photoURL || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect fill="%233b82f6" width="32" height="32"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="16">👤</text></svg>';
+                    
+                    await loadUserProfile(user.uid);
+                    loadGames();
+                    renderCreateForm();
+                    renderProfile();
+                } else {
+                    document.getElementById('loginBtn').classList.remove('hidden');
+                    document.getElementById('userInfo').classList.add('hidden');
+                    loadGames(); // Show games without auth
+                }
+            });
+        }
+
+        // Load user profile
+        async function loadUserProfile(uid) {
+            try {
+                const doc = await db.collection('users').doc(uid).get();
+                if (doc.exists) {
+                    userProfile = doc.data();
+                } else {
+                    // Create new user profile
+                    userProfile = {
+                        uid: uid,
+                        displayName: currentUser.displayName,
+                        email: currentUser.email,
+                        photoURL: currentUser.photoURL,
+                        createdAt: new Date(),
+                        gamesCreated: 0,
+                        gamesAttended: 0,
+                        noShows: 0,
+                        rating: 5.0,
+                        trustScore: 100,
+                        strikes: 0,
+                        verified: false
+                    };
+                    await db.collection('users').doc(uid).set(userProfile);
+                }
+            } catch (error) {
+                console.error('Error loading profile:', error);
+                // Demo mode fallback
+                userProfile = {
+                    uid: uid,
+                    displayName: currentUser?.displayName || 'User',
+                    gamesCreated: 0,
+                    gamesAttended: 0,
+                    trustScore: 100
+                };
+            }
+        }
+
+        // Calculate trust level
+        function getTrustLevel(score) {
+            if (score >= 90) return { level: 'verified', label: '✓ Verified', class: 'trust-verified' };
+            if (score >= 70) return { level: 'good', label: '⭐ Good', class: 'trust-good' };
+            return { level: 'low', label: '⚠ New', class: 'trust-low' };
+        }
+
+        // Check if user can create game
+        function canCreateGame() {
+            if (!currentUser) return { can: false, reason: 'Musisz się zalogować' };
+            if (!userProfile) return { can: false, reason: 'Ładowanie profilu...' };
+            
+            const trust = getTrustLevel(userProfile.trustScore);
+            
+            // New users: 1 game per week
+            if (userProfile.gamesCreated < 3) {
+                // Check if created game in last 7 days
+                // For demo, we'll allow it
+            }
+            
+            // Banned users
+            if (userProfile.strikes >= 3) {
+                return { can: false, reason: 'Konto zablokowane z powodu naruszeń' };
+            }
+            
+            return { can: true };
+        }
+
+        // Google Sign In
+        document.getElementById('googleSignIn')?.addEventListener('click', async () => {
+            if (!auth) {
+                showToast('Demo mode - authentication disabled', 'error');
+                return;
+            }
+            try {
+                const provider = new firebase.auth.GoogleAuthProvider();
+                await auth.signInWithPopup(provider);
+                showToast('Zalogowano pomyślnie!', 'success');
+            } catch (error) {
+                console.error('Sign in error:', error);
+                showToast('Błąd logowania', 'error');
+            }
+        });
+
+        // Sign Out
+        document.getElementById('signOutBtn')?.addEventListener('click', async () => {
+            if (auth) {
+                await auth.signOut();
+                showToast('Wylogowano', 'info');
+            }
+        });
+
+        // Show auth modal
+        document.getElementById('loginBtn')?.addEventListener('click', () => {
+            document.getElementById('authModal').classList.remove('hidden');
+        });
+
+        // Close auth modal
+        document.getElementById('authModal')?.addEventListener('click', (e) => {
+            if (e.target.id === 'authModal') {
+                document.getElementById('authModal').classList.add('hidden');
+            }
+        });
+
+        // Initialize map
+        let map;
+        let markers = [];
+
+        function initMap() {
+            map = L.map('map').setView([51.1079, 17.0385], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+        }
+
+        function updateMapMarkers(games) {
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+            
+            games.forEach(game => {
+                const marker = L.marker([game.lat, game.lng])
+                    .bindPopup(`
+                        <div class="text-center">
+                            <div class="text-2xl mb-1">${game.icon}</div>
+                            <div class="font-semibold">${game.format} ${game.sportName}</div>
+                            <div class="text-sm text-gray-600">${game.location}</div>
+                            <div class="text-sm font-medium text-blue-600 mt-1">${game.time}</div>
+                        </div>
+                    `)
+                    .addTo(map);
+                marker.on('click', () => openGameModal(game));
+                markers.push(marker);
+            });
+        }
+
+        // Load games from Firestore
+        async function loadGames() {
+            try {
+                const now = new Date();
+                const gamesSnapshot = await db.collection('games')
+                    .where('date', '>=', now.toISOString().split('T')[0])
+                    .orderBy('date')
+                    .limit(20)
+                    .get();
+                
+                const games = [];
+                gamesSnapshot.forEach(doc => {
+                    games.push({ id: doc.id, ...doc.data() });
+                });
+                
+                renderGames(games);
+                updateMapMarkers(games);
+            } catch (error) {
+                console.error('Error loading games:', error);
+                // Show demo games
+                renderGames(getDemoGames());
+                updateMapMarkers(getDemoGames());
+            }
+        }
+
+        // Demo games for testing
+        function getDemoGames() {
+            return [
+                {
+                    id: 'demo1',
+                    sport: 'football',
+                    sportName: 'Piłka nożna',
+                    icon: '⚽',
+                    format: '7v7',
+                    date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+                    time: '18:00',
+                    location: 'Orlik Parkowa',
+                    address: 'ul. Parkowa 12',
+                    currentPlayers: 10,
+                    neededPlayers: 4,
+                    totalPlayers: 14,
+                    level: 'Średni',
+                    cost: 70,
+                    description: 'Gramy w każdą środę! Dobra atmosfera 😊',
+                    organizer: {
+                        uid: 'demo',
+                        name: 'Marek Nowak',
+                        rating: 4.9,
+                        gamesPlayed: 23,
+                        trustScore: 95
+                    },
+                    lat: 51.1079,
+                    lng: 17.0385,
+                    createdAt: new Date()
+                },
+                {
+                    id: 'demo2',
+                    sport: 'basketball',
+                    sportName: 'Koszykówka',
+                    icon: '🏀',
+                    format: '5v5',
+                    date: new Date(Date.now() + 172800000).toISOString().split('T')[0],
+                    time: '19:30',
+                    location: 'Hala MOSiR',
+                    address: 'Hala MOSiR Nadodrze',
+                    currentPlayers: 6,
+                    neededPlayers: 4,
+                    totalPlayers: 10,
+                    level: 'Zaawansowany',
+                    cost: 100,
+                    description: 'Szukamy doświadczonych graczy!',
+                    organizer: {
+                        uid: 'demo',
+                        name: 'Anna Kowalczyk',
+                        rating: 4.7,
+                        gamesPlayed: 31,
+                        trustScore: 88
+                    },
+                    lat: 51.1145,
+                    lng: 17.0232,
+                    createdAt: new Date()
+                }
+            ];
+        }
+
+        // Tab switching
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', () => {
+                const tab = button.dataset.tab;
+                
+                // Check auth for certain tabs
+                if ((tab === 'create' || tab === 'profile') && !currentUser) {
+                    document.getElementById('authModal').classList.remove('hidden');
+                    return;
+                }
+                
+                document.querySelectorAll('.tab-button').forEach(b => {
+                    b.classList.remove('tab-active', 'text-blue-600');
+                    b.classList.add('text-gray-500');
+                });
+                button.classList.add('tab-active', 'text-blue-600');
+                button.classList.remove('text-gray-500');
+                
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.add('hidden');
+                });
+                document.getElementById(tab + 'Tab').classList.remove('hidden');
+                
+                if (tab === 'games' && map) {
+                    setTimeout(() => map.invalidateSize(), 100);
+                }
+                if (tab === 'create') {
+                    renderCreateForm();
+                }
+                if (tab === 'profile') {
+                    renderProfile();
+                }
+            });
+        });
+
+        // Sport filtering
+        document.querySelectorAll('.sport-filter').forEach(button => {
+            button.addEventListener('click', () => {
+                document.querySelectorAll('.sport-filter').forEach(b => {
+                    b.classList.remove('bg-blue-600', 'text-white');
+                    b.classList.add('bg-gray-100', 'text-gray-700');
+                });
+                button.classList.add('bg-blue-600', 'text-white');
+                button.classList.remove('bg-gray-100', 'text-gray-700');
+                
+                loadGames();
+            });
+        });
+
+        function renderGames(games) {
+            const gamesList = document.getElementById('gamesList');
+            const activeSport = document.querySelector('.sport-filter.bg-blue-600')?.dataset.sport || 'all';
+            const dateFilter = document.getElementById('dateFilter')?.value;
+            
+            let filteredGames = games.filter(game => {
+                const sportMatch = activeSport === 'all' || game.sport === activeSport;
+                const dateMatch = !dateFilter || game.date === dateFilter;
+                return sportMatch && dateMatch;
+            });
+            
+            if (filteredGames.length === 0) {
+                gamesList.innerHTML = `
+                    <div class="bg-white rounded-lg shadow-sm p-8 text-center text-gray-500">
+                        Brak gier spełniających kryteria
+                    </div>
+                `;
+                return;
+            }
+            
+            gamesList.innerHTML = filteredGames.map(game => {
+                const costPerPerson = game.cost > 0 ? Math.ceil(game.cost / game.totalPlayers) : 0;
+                const progress = (game.currentPlayers / game.totalPlayers) * 100;
+                const trust = getTrustLevel(game.organizer.trustScore);
+                
+                return `
+                    <div class="bg-white rounded-lg shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition" onclick='openGameModal(${JSON.stringify(game).replace(/'/g, "&apos;")})'>
+                        <div class="p-4">
+                            <div class="flex items-start justify-between mb-3">
+                                <div class="flex items-center gap-3">
+                                    <div class="text-3xl">${game.icon}</div>
+                                    <div>
+                                        <h3 class="font-bold text-lg">${game.format} ${game.sportName}</h3>
+                                        <p class="text-sm text-gray-600">${game.location}</p>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm font-semibold text-gray-900">${game.date.split('-').reverse().join('.')}</div>
+                                    <div class="text-sm text-blue-600 font-medium">${game.time}</div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center gap-4 mb-3 text-sm flex-wrap">
+                                <span class="px-2 py-1 bg-gray-100 rounded-full text-gray-700">
+                                    ${game.level}
+                                </span>
+                                ${game.cost > 0 ? `
+                                    <span class="text-gray-600">
+                                        💰 ${costPerPerson} PLN/os
+                                    </span>
+                                ` : `
+                                    <span class="text-green-600 font-medium">
+                                        ✓ Darmowe
+                                    </span>
+                                `}
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="flex items-center justify-between text-sm mb-1">
+                                    <span class="text-gray-600">Potrzeba: <strong>${game.neededPlayers}</strong> graczy</span>
+                                    <span class="text-gray-600">${game.currentPlayers}/${game.totalPlayers}</span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2">
+                                    <div class="bg-blue-600 h-2 rounded-full transition-all" style="width: ${progress}%"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center justify-between pt-3 border-t border-gray-100">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                                        ${game.organizer.name.split(' ').map(n => n[0]).join('')}
+                                    </div>
+                                    <div class="text-sm">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-medium">${game.organizer.name}</span>
+                                            <span class="trust-badge ${trust.class}">${trust.label}</span>
+                                        </div>
+                                        <div class="text-gray-500 text-xs">⭐ ${game.organizer.rating} • ${game.organizer.gamesPlayed} gier</div>
+                                    </div>
+                                </div>
+                                <button class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition">
+                                    Dołącz
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function openGameModal(game) {
+            if (typeof game === 'string') game = JSON.parse(game);
+            
+            const modal = document.getElementById('gameModal');
+            const costPerPerson = game.cost > 0 ? Math.ceil(game.cost / game.totalPlayers) : 0;
+            const trust = getTrustLevel(game.organizer.trustScore);
+            
+            document.getElementById('modalContent').innerHTML = `
+                <div class="text-center mb-6">
+                    <div class="text-5xl mb-3">${game.icon}</div>
+                    <h2 class="text-2xl font-bold mb-1">${game.format} ${game.sportName}</h2>
+                    <p class="text-gray-600">${game.date.split('-').reverse().join('.')} • ${game.time}</p>
+                </div>
+                
+                <div class="space-y-4 mb-6">
+                    <div class="flex items-start gap-3">
+                        <div class="text-xl">📍</div>
+                        <div>
+                            <div class="font-semibold">${game.location}</div>
+                            <div class="text-sm text-gray-600">${game.address}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center gap-3">
+                        <div class="text-xl">🎯</div>
+                        <div>
+                            <div class="font-semibold">Poziom: ${game.level}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center gap-3">
+                        <div class="text-xl">💰</div>
+                        <div>
+                            ${game.cost > 0 ? `
+                                <div class="font-semibold">${costPerPerson} PLN na osobę</div>
+                                <div class="text-sm text-gray-600">Łącznie: ${game.cost} PLN</div>
+                            ` : `
+                                <div class="font-semibold text-green-600">Darmowe</div>
+                            `}
+                        </div>
+                    </div>
+                </div>
+                
+                ${game.description ? `
+                    <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                        <div class="text-sm text-gray-700">${game.description}</div>
+                    </div>
+                ` : ''}
+                
+                <div class="mb-6">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="font-semibold">Uczestnicy (${game.currentPlayers}/${game.totalPlayers})</h3>
+                        <span class="text-sm text-blue-600 font-medium">Potrzeba: ${game.neededPlayers}</span>
+                    </div>
+                    <div class="grid grid-cols-5 gap-2">
+                        ${Array(game.currentPlayers).fill(0).map((_, i) => `
+                            <div class="player-slot w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                                ${i === 0 ? game.organizer.name.split(' ').map(n => n[0]).join('') : 'U' + i}
+                            </div>
+                        `).join('')}
+                        ${Array(game.neededPlayers).fill(0).map(() => `
+                            <div class="player-slot w-12 h-12 border-2 border-dashed border-gray-300 rounded-full flex items-center justify-center text-gray-400">
+                                ?
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                
+                <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+                            ${game.organizer.name.split(' ').map(n => n[0]).join('')}
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="font-semibold">${game.organizer.name}</span>
+                                <span class="trust-badge ${trust.class}">${trust.label}</span>
+                            </div>
+                            <div class="text-sm text-gray-600">Organizator</div>
+                        </div>
+                    </div>
+                    <div class="flex gap-4 text-sm text-gray-600">
+                        <span>⭐ ${game.organizer.rating}</span>
+                        <span>🎮 ${game.organizer.gamesPlayed} gier</span>
+                        <span>🎯 ${game.organizer.trustScore}% trust</span>
+                    </div>
+                </div>
+                
+                ${currentUser ? `
+                    <button onclick="joinGame('${game.id}')" class="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition mb-3">
+                        Dołącz do gry
+                    </button>
+                ` : `
+                    <button onclick="document.getElementById('authModal').classList.remove('hidden'); document.getElementById('gameModal').classList.add('hidden');" class="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition mb-3">
+                        Zaloguj się aby dołączyć
+                    </button>
+                `}
+                <button class="w-full border-2 border-gray-300 py-3 rounded-lg font-semibold hover:bg-gray-50 transition">
+                    Udostępnij
+                </button>
+            `;
+            
+            modal.classList.remove('hidden');
+        }
+
+        async function joinGame(gameId) {
+            if (!currentUser) {
+                document.getElementById('authModal').classList.remove('hidden');
+                return;
+            }
+            
+            try {
+                // Add user to game participants
+                await db.collection('games').doc(gameId).update({
+                    participants: firebase.firestore.FieldValue.arrayUnion(currentUser.uid),
+                    currentPlayers: firebase.firestore.FieldValue.increment(1),
+                    neededPlayers: firebase.firestore.FieldValue.increment(-1)
+                });
+                
+                // Update user stats
+                await db.collection('users').doc(currentUser.uid).update({
+                    gamesAttended: firebase.firestore.FieldValue.increment(1)
+                });
+                
+                showToast('Dołączyłeś do gry! 🎉', 'success');
+                document.getElementById('gameModal').classList.add('hidden');
+                loadGames();
+            } catch (error) {
+                console.error('Error joining game:', error);
+                showToast('Demo mode - funkcja niedostępna', 'info');
+                document.getElementById('gameModal').classList.add('hidden');
+            }
+        }
+
+        document.getElementById('closeModal').addEventListener('click', () => {
+            document.getElementById('gameModal').classList.add('hidden');
+        });
+
+        // Render create form
+        function renderCreateForm() {
+            const canCreate = canCreateGame();
+            const content = document.getElementById('createGameContent');
+            
+            if (!canCreate.can) {
+                content.innerHTML = `
+                    <div class="text-center py-12">
+                        <div class="text-5xl mb-4">🔒</div>
+                        <h3 class="text-xl font-bold mb-2">${canCreate.reason}</h3>
+                        <p class="text-gray-600">Zaloguj się aby tworzyć wydarzenia</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const trust = getTrustLevel(userProfile.trustScore);
+            
+            content.innerHTML = `
+                <div class="mb-6">
+                    <h2 class="text-2xl font-bold text-gray-900 mb-2">Utwórz nową grę</h2>
+                    <div class="flex items-center gap-2 text-sm">
+                        <span class="trust-badge ${trust.class}">${trust.label}</span>
+                        <span class="text-gray-600">• Możesz utworzyć ${userProfile.gamesCreated < 3 ? '1 grę w tygodniu' : 'nieograniczone gry'}</span>
+                    </div>
+                </div>
+                
+                <form id="createGameForm" class="space-y-6">
+                    <!-- Sport Selection -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-3">Wybierz sport</label>
+                        <div class="grid grid-cols-2 gap-4">
+                            <label class="sport-badge cursor-pointer">
+                                <input type="radio" name="sport" value="football" class="hidden peer" required>
+                                <div class="border-2 border-gray-200 peer-checked:border-blue-600 peer-checked:bg-blue-50 rounded-lg p-4 text-center">
+                                    <div class="text-4xl mb-2">⚽</div>
+                                    <div class="font-semibold">Piłka nożna</div>
+                                </div>
+                            </label>
+                            <label class="sport-badge cursor-pointer">
+                                <input type="radio" name="sport" value="basketball" class="hidden peer" required>
+                                <div class="border-2 border-gray-200 peer-checked:border-blue-600 peer-checked:bg-blue-50 rounded-lg p-4 text-center">
+                                    <div class="text-4xl mb-2">🏀</div>
+                                    <div class="font-semibold">Koszykówka</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Format -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Format gry</label>
+                        <select id="formatSelect" name="format" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                            <option value="">Wybierz format</option>
+                        </select>
+                    </div>
+
+                    <!-- Date & Time -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Data</label>
+                            <input type="date" name="date" min="${new Date().toISOString().split('T')[0]}" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Godzina</label>
+                            <input type="time" name="time" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                        </div>
+                    </div>
+
+                    <!-- Location -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Miejsce</label>
+                        <select name="location" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                            <option value="">Wybierz miejsce</option>
+                            <option value="Orlik Parkowa|ul. Parkowa 12">Orlik, ul. Parkowa 12</option>
+                            <option value="Orlik Grunwaldzka|ul. Grunwaldzka 45">Orlik, ul. Grunwaldzka 45</option>
+                            <option value="Park Szczytnicki|Park Szczytnicki">Park Szczytnicki</option>
+                            <option value="Hala MOSiR|Hala MOSiR Nadodrze">Hala MOSiR Nadodrze</option>
+                            <option value="Goal Arena|Goal Arena">Goal Arena</option>
+                        </select>
+                    </div>
+
+                    <!-- Players -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Obecny skład</label>
+                            <input type="number" name="currentPlayers" min="1" max="20" value="1" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Potrzeba graczy</label>
+                            <input type="number" name="neededPlayers" min="1" max="20" value="5" class="w-full px-4 py-2 border border-gray-300 rounded-lg" required>
+                        </div>
+                    </div>
+
+                    <!-- Skill Level -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-3">Poziom</label>
+                        <div class="flex gap-4">
+                            <label class="flex-1 cursor-pointer">
+                                <input type="radio" name="level" value="beginner" class="hidden peer" required>
+                                <div class="border-2 border-gray-200 peer-checked:border-blue-600 peer-checked:bg-blue-50 rounded-lg p-3 text-center">
+                                    <div class="font-medium">🌱 Amator</div>
+                                </div>
+                            </label>
+                            <label class="flex-1 cursor-pointer">
+                                <input type="radio" name="level" value="intermediate" class="hidden peer">
+                                <div class="border-2 border-gray-200 peer-checked:border-blue-600 peer-checked:bg-blue-50 rounded-lg p-3 text-center">
+                                    <div class="font-medium">⭐ Średni</div>
+                                </div>
+                            </label>
+                            <label class="flex-1 cursor-pointer">
+                                <input type="radio" name="level" value="advanced" class="hidden peer">
+                                <div class="border-2 border-gray-200 peer-checked:border-blue-600 peer-checked:bg-blue-50 rounded-lg p-3 text-center">
+                                    <div class="font-medium">🏆 Zaawansowany</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Cost -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Koszt (PLN na wszystkich)</label>
+                        <input type="number" name="cost" min="0" step="10" value="0" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                        <p class="text-sm text-gray-500 mt-1">Zostaw 0 jeśli miejsce jest darmowe</p>
+                    </div>
+
+                    <!-- Description -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Opis (opcjonalnie)</label>
+                        <textarea name="description" rows="3" maxlength="200" class="w-full px-4 py-2 border border-gray-300 rounded-lg" placeholder="Np. Gramy w każdą środę! Dobra atmosfera 😊"></textarea>
+                        <p class="text-sm text-gray-500 mt-1">Maksymalnie 200 znaków</p>
+                    </div>
+
+                    <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition">
+                        Utwórz grę
+                    </button>
+                </form>
+            `;
+            
+            // Setup form handlers
+            setupCreateForm();
+        }
+
+        function setupCreateForm() {
+            const sportInputs = document.querySelectorAll('input[name="sport"]');
+            const formatSelect = document.getElementById('formatSelect');
+            
+            const formats = {
+                football: [
+                    { value: '3v3', label: '3 vs 3' },
+                    { value: '5v5', label: '5 vs 5 (futsal)' },
+                    { value: '7v7', label: '7 vs 7' },
+                    { value: '11v11', label: '11 vs 11 (full)' }
+                ],
+                basketball: [
+                    { value: '3v3', label: '3 vs 3 (streetball)' },
+                    { value: '5v5', label: '5 vs 5 (full court)' }
+                ]
+            };
+            
+            sportInputs.forEach(input => {
+                input.addEventListener('change', () => {
+                    const sport = input.value;
+                    formatSelect.innerHTML = '<option value="">Wybierz format</option>' +
+                        formats[sport].map(f => `<option value="${f.value}">${f.label}</option>`).join('');
+                });
+            });
+
+            document.getElementById('createGameForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                if (!currentUser) {
+                    showToast('Musisz się zalogować', 'error');
+                    return;
+                }
+                
+                const formData = new FormData(e.target);
+                const [location, address] = formData.get('location').split('|');
+                
+                const gameData = {
+                    sport: formData.get('sport'),
+                    sportName: formData.get('sport') === 'football' ? 'Piłka nożna' : 'Koszykówka',
+                    icon: formData.get('sport') === 'football' ? '⚽' : '🏀',
+                    format: formData.get('format'),
+                    date: formData.get('date'),
+                    time: formData.get('time'),
+                    location: location,
+                    address: address,
+                    currentPlayers: parseInt(formData.get('currentPlayers')),
+                    neededPlayers: parseInt(formData.get('neededPlayers')),
+                    totalPlayers: parseInt(formData.get('currentPlayers')) + parseInt(formData.get('neededPlayers')),
+                    level: formData.get('level') === 'beginner' ? 'Amator' : formData.get('level') === 'intermediate' ? 'Średni' : 'Zaawansowany',
+                    cost: parseInt(formData.get('cost')),
+                    description: formData.get('description'),
+                    organizer: {
+                        uid: currentUser.uid,
+                        name: currentUser.displayName,
+                        rating: userProfile.rating || 5.0,
+                        gamesPlayed: userProfile.gamesCreated || 0,
+                        trustScore: userProfile.trustScore || 100
+                    },
+                    participants: [currentUser.uid],
+                    lat: 51.1079 + (Math.random() - 0.5) * 0.05,
+                    lng: 17.0385 + (Math.random() - 0.5) * 0.05,
+                    createdAt: new Date(),
+                    status: 'active'
+                };
+                
+                try {
+                    await db.collection('games').add(gameData);
+                    await db.collection('users').doc(currentUser.uid).update({
+                        gamesCreated: firebase.firestore.FieldValue.increment(1)
+                    });
+                    
+                    showToast('Gra została utworzona! 🎉', 'success');
+                    e.target.reset();
+                    document.querySelector('.tab-button[data-tab="games"]').click();
+                    loadGames();
+                } catch (error) {
+                    console.error('Error creating game:', error);
+                    showToast('Demo mode - gra nie została zapisana', 'info');
+                }
+            });
+        }
+
+        // Render profile
+        function renderProfile() {
+            const content = document.getElementById('profileContent');
+            
+            if (!currentUser || !userProfile) {
+                content.innerHTML = `
+                    <div class="text-center py-12">
+                        <div class="text-5xl mb-4">👤</div>
+                        <h3 class="text-xl font-bold mb-2">Profil</h3>
+                        <p class="text-gray-600">Zaloguj się aby zobaczyć profil</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const trust = getTrustLevel(userProfile.trustScore);
+            const attendanceRate = userProfile.gamesAttended > 0 
+                ? Math.round((userProfile.gamesAttended / (userProfile.gamesAttended + userProfile.noShows)) * 100)
+                : 100;
+            
+            content.innerHTML = `
+                <div class="text-center mb-6">
+                    <img src="${currentUser.photoURL || 'data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'96\' height=\'96\'><rect fill=\'%233b82f6\' width=\'96\' height=\'96\'/><text x=\'50%\' y=\'50%\' dominant-baseline=\'middle\' text-anchor=\'middle\' fill=\'white\' font-size=\'48\'>👤</text></svg>'}" 
+                        class="w-24 h-24 rounded-full mx-auto mb-4 border-4 border-blue-100">
+                    <h2 class="text-2xl font-bold text-gray-900">${userProfile.displayName}</h2>
+                    <div class="flex items-center justify-center gap-2 mt-2">
+                        <span class="trust-badge ${trust.class}">${trust.label}</span>
+                    </div>
+                </div>
+
+                <div class="space-y-6">
+                    <!-- Stats -->
+                    <div>
+                        <h3 class="font-semibold text-gray-900 mb-3">Statystyki</h3>
+                        <div class="grid grid-cols-3 gap-4 text-center">
+                            <div class="bg-gray-50 rounded-lg p-4">
+                                <div class="text-2xl font-bold text-blue-600">${userProfile.gamesCreated || 0}</div>
+                                <div class="text-sm text-gray-600">Utworzonych</div>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-4">
+                                <div class="text-2xl font-bold text-green-600">${userProfile.rating?.toFixed(1) || '5.0'}</div>
+                                <div class="text-sm text-gray-600">Ocena</div>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-4">
+                                <div class="text-2xl font-bold text-purple-600">${attendanceRate}%</div>
+                                <div class="text-sm text-gray-600">Obecność</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Trust Score -->
+                    <div>
+                        <h3 class="font-semibold text-gray-900 mb-3">Trust Score</h3>
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-sm font-medium">Poziom zaufania</span>
+                                <span class="text-lg font-bold ${userProfile.trustScore >= 90 ? 'text-green-600' : userProfile.trustScore >= 70 ? 'text-yellow-600' : 'text-red-600'}">
+                                    ${userProfile.trustScore || 100}%
+                                </span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-3">
+                                <div class="bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 h-3 rounded-full transition-all" 
+                                    style="width: ${userProfile.trustScore || 100}%"></div>
+                            </div>
+                            <div class="mt-3 text-xs text-gray-600 space-y-1">
+                                <div class="flex justify-between">
+                                    <span>Gry utworzone:</span>
+                                    <span class="font-medium">+${(userProfile.gamesCreated || 0) * 5} pkt</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span>Gry uczestniczone:</span>
+                                    <span class="font-medium">+${(userProfile.gamesAttended || 0) * 2} pkt</span>
+                                </div>
+                                ${userProfile.noShows > 0 ? `
+                                    <div class="flex justify-between text-red-600">
+                                        <span>Nieobecności:</span>
+                                        <span class="font-medium">-${userProfile.noShows * 10} pkt</span>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Strikes (if any) -->
+                    ${userProfile.strikes > 0 ? `
+                        <div class="bg-red-50 border-2 border-red-200 rounded-lg p-4">
+                            <div class="flex items-center gap-2 text-red-600 font-semibold mb-2">
+                                ⚠️ Ostrzeżenia: ${userProfile.strikes}/3
+                            </div>
+                            <p class="text-sm text-red-700">
+                                ${userProfile.strikes === 1 ? 'Otrzymałeś pierwsze ostrzeżenie. Uważaj!' : 
+                                  userProfile.strikes === 2 ? 'Dwa ostrzeżenia! Kolejne może zablokować konto.' :
+                                  'Ostatnie ostrzeżenie! Następne = ban.'}
+                            </p>
+                        </div>
+                    ` : ''}
+
+                    <!-- Favorite Sports -->
+                    <div>
+                        <h3 class="font-semibold text-gray-900 mb-3">Ulubione sporty</h3>
+                        <div class="flex gap-3">
+                            <div class="flex-1 bg-blue-50 border-2 border-blue-600 rounded-lg p-3 text-center">
+                                <div class="text-2xl mb-1">⚽</div>
+                                <div class="text-sm font-medium">Piłka nożna</div>
+                            </div>
+                            <div class="flex-1 bg-gray-50 border-2 border-gray-200 rounded-lg p-3 text-center">
+                                <div class="text-2xl mb-1">🏀</div>
+                                <div class="text-sm font-medium">Koszykówka</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Membership Info -->
+                    <div class="bg-blue-50 rounded-lg p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="font-semibold text-gray-900">Status członkostwa</span>
+                            <span class="text-sm text-blue-600 font-medium">
+                                ${userProfile.gamesCreated < 3 ? 'Nowy' : userProfile.gamesCreated < 10 ? 'Aktywny' : 'Trusted'}
+                            </span>
+                        </div>
+                        <div class="text-sm text-gray-600">
+                            ${userProfile.gamesCreated < 3 ? 
+                                `Utwórz jeszcze ${3 - userProfile.gamesCreated} gier aby odblokować unlimited` :
+                                userProfile.gamesCreated < 10 ?
+                                `Utwórz ${10 - userProfile.gamesCreated} więcej gier aby zostać Trusted` :
+                                'Gratulacje! Masz status Trusted 🏆'
+                            }
+                        </div>
+                    </div>
+
+                    <button class="w-full py-3 border-2 border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition">
+                        Edytuj profil
+                    </button>
+                </div>
+            `;
+        }
+
+        // Date filter
+        document.getElementById('dateFilter')?.addEventListener('change', () => {
+            loadGames();
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            loadGames();
+        });
+    </script>
+</body>
+</html>
